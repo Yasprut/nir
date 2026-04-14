@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-echo "⏳ Waiting for PostgreSQL..."
+echo "Waiting for PostgreSQL..."
 
 MAX_RETRIES=30
 RETRY=0
@@ -21,5 +21,5 @@ if [ $RETRY -ge $MAX_RETRIES ]; then
     exit 1
 fi
 
-echo "🚀 Starting IAM Routing server..."
+echo "Starting IAM Routing server..."
 exec /app/server
