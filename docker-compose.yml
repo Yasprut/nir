@@ -5,7 +5,7 @@ services:
     container_name: nir-postgres
     env_file: .env
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -13,19 +13,6 @@ services:
       interval: 2s
       timeout: 5s
       retries: 15
-    restart: unless-stopped
-
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: nir-pgadmin
-    env_file: .env
-    environment:
-      PGADMIN_LISTEN_PORT: 5050
-    ports:
-      - "5050:5050"
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
 
   server:
@@ -39,6 +26,25 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nir-web
+    entrypoint: ["/app/web"]
+    env_file: .env
+    environment:
+      GRPC_ADDRESS: "nir-server:50051"
+      WEB_ADDRESS: ":8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      server:
+        condition: service_started
     restart: unless-stopped
 
 volumes:

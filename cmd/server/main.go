@@ -36,6 +36,22 @@ func main() {
 	}
 
 	holder := policy.NewEngineHolder(engine)
+
+	go store.ListenPolicyChanges(context.Background(), func() {
+		newPolicies, err := store.LoadPolicies(context.Background())
+		if err != nil {
+			log.Printf("reload policies: %v", err)
+			return
+		}
+		newEngine, err := policy.NewEngine(newPolicies)
+		if err != nil {
+			log.Printf("rebuild engine: %v", err)
+			return
+		}
+		holder.Set(newEngine)
+		log.Printf("policy engine reloaded: %d policies", len(newPolicies))
+	})
+
 	h := handler.NewIAMHandler(holder, cfg.Debug)
 
 	lis, err := net.Listen("tcp", cfg.ServerAddress)

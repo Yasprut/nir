@@ -13,9 +13,10 @@ RUN go mod download
 COPY . .
 RUN go mod tidy
 
-# Собираем оба бинарника
+# Собираем все бинарники
 RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/server   ./cmd/server
 RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/migrate  ./cmd/migrate
+RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/web      ./cmd/web
 
 # Stage 2: Runtime
 
@@ -28,6 +29,7 @@ WORKDIR /app
 # Бинарники
 COPY --from=builder /bin/server  /app/server
 COPY --from=builder /bin/migrate /app/migrate
+COPY --from=builder /bin/web     /app/web
 
 # Миграции и seed
 COPY migrations/ /app/migrations/

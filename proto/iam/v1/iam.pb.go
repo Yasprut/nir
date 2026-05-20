@@ -770,20 +770,81 @@ func (x *IsApproverResponse) GetIsApprover() bool {
 	return false
 }
 
-type PolicyExplain struct {
+type ConditionalStepExplain struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	PolicyId      string                 `protobuf:"bytes,1,opt,name=policy_id,json=policyId,proto3" json:"policy_id,omitempty"`
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"` // baseline | augment | override | restrict
-	Priority      int32                  `protobuf:"varint,3,opt,name=priority,proto3" json:"priority,omitempty"`
-	Matched       bool                   `protobuf:"varint,4,opt,name=matched,proto3" json:"matched,omitempty"`
-	Reasons       []string               `protobuf:"bytes,5,rep,name=reasons,proto3" json:"reasons,omitempty"`
+	IfExpr        string                 `protobuf:"bytes,1,opt,name=if_expr,json=ifExpr,proto3" json:"if_expr,omitempty"`
+	Triggered     bool                   `protobuf:"varint,2,opt,name=triggered,proto3" json:"triggered,omitempty"`
+	StepNames     []string               `protobuf:"bytes,3,rep,name=step_names,json=stepNames,proto3" json:"step_names,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
+func (x *ConditionalStepExplain) Reset() {
+	*x = ConditionalStepExplain{}
+	mi := &file_proto_iam_v1_iam_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConditionalStepExplain) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConditionalStepExplain) ProtoMessage() {}
+
+func (x *ConditionalStepExplain) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_iam_v1_iam_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConditionalStepExplain.ProtoReflect.Descriptor instead.
+func (*ConditionalStepExplain) Descriptor() ([]byte, []int) {
+	return file_proto_iam_v1_iam_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ConditionalStepExplain) GetIfExpr() string {
+	if x != nil {
+		return x.IfExpr
+	}
+	return ""
+}
+
+func (x *ConditionalStepExplain) GetTriggered() bool {
+	if x != nil {
+		return x.Triggered
+	}
+	return false
+}
+
+func (x *ConditionalStepExplain) GetStepNames() []string {
+	if x != nil {
+		return x.StepNames
+	}
+	return nil
+}
+
+type PolicyExplain struct {
+	state            protoimpl.MessageState    `protogen:"open.v1"`
+	PolicyId         string                    `protobuf:"bytes,1,opt,name=policy_id,json=policyId,proto3" json:"policy_id,omitempty"`
+	Type             string                    `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"` // baseline | augment | override | restrict
+	Priority         int32                     `protobuf:"varint,3,opt,name=priority,proto3" json:"priority,omitempty"`
+	Matched          bool                      `protobuf:"varint,4,opt,name=matched,proto3" json:"matched,omitempty"`
+	Reasons          []string                  `protobuf:"bytes,5,rep,name=reasons,proto3" json:"reasons,omitempty"`
+	ConditionalSteps []*ConditionalStepExplain `protobuf:"bytes,6,rep,name=conditional_steps,json=conditionalSteps,proto3" json:"conditional_steps,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
 func (x *PolicyExplain) Reset() {
 	*x = PolicyExplain{}
-	mi := &file_proto_iam_v1_iam_proto_msgTypes[10]
+	mi := &file_proto_iam_v1_iam_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -795,7 +856,7 @@ func (x *PolicyExplain) String() string {
 func (*PolicyExplain) ProtoMessage() {}
 
 func (x *PolicyExplain) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_iam_v1_iam_proto_msgTypes[10]
+	mi := &file_proto_iam_v1_iam_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -808,7 +869,7 @@ func (x *PolicyExplain) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PolicyExplain.ProtoReflect.Descriptor instead.
 func (*PolicyExplain) Descriptor() ([]byte, []int) {
-	return file_proto_iam_v1_iam_proto_rawDescGZIP(), []int{10}
+	return file_proto_iam_v1_iam_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *PolicyExplain) GetPolicyId() string {
@@ -846,6 +907,13 @@ func (x *PolicyExplain) GetReasons() []string {
 	return nil
 }
 
+func (x *PolicyExplain) GetConditionalSteps() []*ConditionalStepExplain {
+	if x != nil {
+		return x.ConditionalSteps
+	}
+	return nil
+}
+
 type ExplainResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Policies      []*PolicyExplain       `protobuf:"bytes,2,rep,name=policies,proto3" json:"policies,omitempty"`
@@ -855,7 +923,7 @@ type ExplainResponse struct {
 
 func (x *ExplainResponse) Reset() {
 	*x = ExplainResponse{}
-	mi := &file_proto_iam_v1_iam_proto_msgTypes[11]
+	mi := &file_proto_iam_v1_iam_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -867,7 +935,7 @@ func (x *ExplainResponse) String() string {
 func (*ExplainResponse) ProtoMessage() {}
 
 func (x *ExplainResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_iam_v1_iam_proto_msgTypes[11]
+	mi := &file_proto_iam_v1_iam_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -880,7 +948,7 @@ func (x *ExplainResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExplainResponse.ProtoReflect.Descriptor instead.
 func (*ExplainResponse) Descriptor() ([]byte, []int) {
-	return file_proto_iam_v1_iam_proto_rawDescGZIP(), []int{11}
+	return file_proto_iam_v1_iam_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ExplainResponse) GetPolicies() []*PolicyExplain {
@@ -976,13 +1044,19 @@ const file_proto_iam_v1_iam_proto_rawDesc = "" +
 	"\arequest\x18\x03 \x01(\v2\x15.iam.v1.AccessRequestR\arequest\"5\n" +
 	"\x12IsApproverResponse\x12\x1f\n" +
 	"\vis_approver\x18\x01 \x01(\bR\n" +
-	"isApprover\"\x90\x01\n" +
+	"isApprover\"n\n" +
+	"\x16ConditionalStepExplain\x12\x17\n" +
+	"\aif_expr\x18\x01 \x01(\tR\x06ifExpr\x12\x1c\n" +
+	"\ttriggered\x18\x02 \x01(\bR\ttriggered\x12\x1d\n" +
+	"\n" +
+	"step_names\x18\x03 \x03(\tR\tstepNames\"\xdd\x01\n" +
 	"\rPolicyExplain\x12\x1b\n" +
 	"\tpolicy_id\x18\x01 \x01(\tR\bpolicyId\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1a\n" +
 	"\bpriority\x18\x03 \x01(\x05R\bpriority\x12\x18\n" +
 	"\amatched\x18\x04 \x01(\bR\amatched\x12\x18\n" +
-	"\areasons\x18\x05 \x03(\tR\areasons\"D\n" +
+	"\areasons\x18\x05 \x03(\tR\areasons\x12K\n" +
+	"\x11conditional_steps\x18\x06 \x03(\v2\x1e.iam.v1.ConditionalStepExplainR\x10conditionalSteps\"D\n" +
 	"\x0fExplainResponse\x121\n" +
 	"\bpolicies\x18\x02 \x03(\v2\x15.iam.v1.PolicyExplainR\bpolicies*@\n" +
 	"\vEnvironment\x12\x13\n" +
@@ -1011,55 +1085,57 @@ func file_proto_iam_v1_iam_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_iam_v1_iam_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_iam_v1_iam_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_proto_iam_v1_iam_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_proto_iam_v1_iam_proto_goTypes = []any{
-	(Environment)(0),              // 0: iam.v1.Environment
-	(*Resource)(nil),              // 1: iam.v1.Resource
-	(*Role)(nil),                  // 2: iam.v1.Role
-	(*Subject)(nil),               // 3: iam.v1.Subject
-	(*AccessRequest)(nil),         // 4: iam.v1.AccessRequest
-	(*HRRequest)(nil),             // 5: iam.v1.HRRequest
-	(*HRResponse)(nil),            // 6: iam.v1.HRResponse
-	(*WorkflowStep)(nil),          // 7: iam.v1.WorkflowStep
-	(*WorkflowResponse)(nil),      // 8: iam.v1.WorkflowResponse
-	(*IsApproverRequest)(nil),     // 9: iam.v1.IsApproverRequest
-	(*IsApproverResponse)(nil),    // 10: iam.v1.IsApproverResponse
-	(*PolicyExplain)(nil),         // 11: iam.v1.PolicyExplain
-	(*ExplainResponse)(nil),       // 12: iam.v1.ExplainResponse
-	nil,                           // 13: iam.v1.Resource.AttributesEntry
-	nil,                           // 14: iam.v1.Role.AttributesEntry
-	nil,                           // 15: iam.v1.Subject.MetadataEntry
-	nil,                           // 16: iam.v1.HRResponse.AttributesEntry
-	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
+	(Environment)(0),               // 0: iam.v1.Environment
+	(*Resource)(nil),               // 1: iam.v1.Resource
+	(*Role)(nil),                   // 2: iam.v1.Role
+	(*Subject)(nil),                // 3: iam.v1.Subject
+	(*AccessRequest)(nil),          // 4: iam.v1.AccessRequest
+	(*HRRequest)(nil),              // 5: iam.v1.HRRequest
+	(*HRResponse)(nil),             // 6: iam.v1.HRResponse
+	(*WorkflowStep)(nil),           // 7: iam.v1.WorkflowStep
+	(*WorkflowResponse)(nil),       // 8: iam.v1.WorkflowResponse
+	(*IsApproverRequest)(nil),      // 9: iam.v1.IsApproverRequest
+	(*IsApproverResponse)(nil),     // 10: iam.v1.IsApproverResponse
+	(*ConditionalStepExplain)(nil), // 11: iam.v1.ConditionalStepExplain
+	(*PolicyExplain)(nil),          // 12: iam.v1.PolicyExplain
+	(*ExplainResponse)(nil),        // 13: iam.v1.ExplainResponse
+	nil,                            // 14: iam.v1.Resource.AttributesEntry
+	nil,                            // 15: iam.v1.Role.AttributesEntry
+	nil,                            // 16: iam.v1.Subject.MetadataEntry
+	nil,                            // 17: iam.v1.HRResponse.AttributesEntry
+	(*timestamppb.Timestamp)(nil),  // 18: google.protobuf.Timestamp
 }
 var file_proto_iam_v1_iam_proto_depIdxs = []int32{
 	0,  // 0: iam.v1.Resource.environment:type_name -> iam.v1.Environment
-	13, // 1: iam.v1.Resource.attributes:type_name -> iam.v1.Resource.AttributesEntry
-	14, // 2: iam.v1.Role.attributes:type_name -> iam.v1.Role.AttributesEntry
-	15, // 3: iam.v1.Subject.metadata:type_name -> iam.v1.Subject.MetadataEntry
+	14, // 1: iam.v1.Resource.attributes:type_name -> iam.v1.Resource.AttributesEntry
+	15, // 2: iam.v1.Role.attributes:type_name -> iam.v1.Role.AttributesEntry
+	16, // 3: iam.v1.Subject.metadata:type_name -> iam.v1.Subject.MetadataEntry
 	3,  // 4: iam.v1.AccessRequest.subject:type_name -> iam.v1.Subject
 	1,  // 5: iam.v1.AccessRequest.resource:type_name -> iam.v1.Resource
 	2,  // 6: iam.v1.AccessRequest.roles:type_name -> iam.v1.Role
-	17, // 7: iam.v1.AccessRequest.created_at:type_name -> google.protobuf.Timestamp
-	17, // 8: iam.v1.AccessRequest.updated_at:type_name -> google.protobuf.Timestamp
-	17, // 9: iam.v1.HRResponse.time:type_name -> google.protobuf.Timestamp
-	16, // 10: iam.v1.HRResponse.attributes:type_name -> iam.v1.HRResponse.AttributesEntry
+	18, // 7: iam.v1.AccessRequest.created_at:type_name -> google.protobuf.Timestamp
+	18, // 8: iam.v1.AccessRequest.updated_at:type_name -> google.protobuf.Timestamp
+	18, // 9: iam.v1.HRResponse.time:type_name -> google.protobuf.Timestamp
+	17, // 10: iam.v1.HRResponse.attributes:type_name -> iam.v1.HRResponse.AttributesEntry
 	7,  // 11: iam.v1.WorkflowResponse.steps:type_name -> iam.v1.WorkflowStep
 	4,  // 12: iam.v1.IsApproverRequest.request:type_name -> iam.v1.AccessRequest
-	11, // 13: iam.v1.ExplainResponse.policies:type_name -> iam.v1.PolicyExplain
-	4,  // 14: iam.v1.IAM.CreateAccessRequest:input_type -> iam.v1.AccessRequest
-	4,  // 15: iam.v1.IAM.ExplainAccessRequest:input_type -> iam.v1.AccessRequest
-	9,  // 16: iam.v1.IAM.IsApprover:input_type -> iam.v1.IsApproverRequest
-	5,  // 17: iam.v1.HRService.GetHRInfo:input_type -> iam.v1.HRRequest
-	8,  // 18: iam.v1.IAM.CreateAccessRequest:output_type -> iam.v1.WorkflowResponse
-	12, // 19: iam.v1.IAM.ExplainAccessRequest:output_type -> iam.v1.ExplainResponse
-	10, // 20: iam.v1.IAM.IsApprover:output_type -> iam.v1.IsApproverResponse
-	6,  // 21: iam.v1.HRService.GetHRInfo:output_type -> iam.v1.HRResponse
-	18, // [18:22] is the sub-list for method output_type
-	14, // [14:18] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	11, // 13: iam.v1.PolicyExplain.conditional_steps:type_name -> iam.v1.ConditionalStepExplain
+	12, // 14: iam.v1.ExplainResponse.policies:type_name -> iam.v1.PolicyExplain
+	4,  // 15: iam.v1.IAM.CreateAccessRequest:input_type -> iam.v1.AccessRequest
+	4,  // 16: iam.v1.IAM.ExplainAccessRequest:input_type -> iam.v1.AccessRequest
+	9,  // 17: iam.v1.IAM.IsApprover:input_type -> iam.v1.IsApproverRequest
+	5,  // 18: iam.v1.HRService.GetHRInfo:input_type -> iam.v1.HRRequest
+	8,  // 19: iam.v1.IAM.CreateAccessRequest:output_type -> iam.v1.WorkflowResponse
+	13, // 20: iam.v1.IAM.ExplainAccessRequest:output_type -> iam.v1.ExplainResponse
+	10, // 21: iam.v1.IAM.IsApprover:output_type -> iam.v1.IsApproverResponse
+	6,  // 22: iam.v1.HRService.GetHRInfo:output_type -> iam.v1.HRResponse
+	19, // [19:23] is the sub-list for method output_type
+	15, // [15:19] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_proto_iam_v1_iam_proto_init() }
@@ -1073,7 +1149,7 @@ func file_proto_iam_v1_iam_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_iam_v1_iam_proto_rawDesc), len(file_proto_iam_v1_iam_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   16,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

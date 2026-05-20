@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"nir/internal/cache"
 	"nir/internal/policy"
 	pb "nir/proto/iam/v1"
 )
@@ -15,10 +16,40 @@ type IAMHandler struct {
 	pb.UnimplementedIAMServer
 	policyEngine *policy.EngineHolder
 	debug        bool
+	cache        *cache.LFU[string, *pb.WorkflowResponse]
 }
 
 func NewIAMHandler(pe *policy.EngineHolder, debug bool) *IAMHandler {
-	return &IAMHandler{policyEngine: pe, debug: debug}
+	return &IAMHandler{
+		policyEngine: pe,
+		debug:        debug,
+		cache:        cache.NewLFU[string, *pb.WorkflowResponse](100),
+	}
+}
+
+func requestCacheKey(gen int64, req *pb.AccessRequest) string {
+	roles := make([]string, len(req.Roles))
+	for i, r := range req.Roles {
+		roles[i] = r.Name
+	}
+	sort.Strings(roles)
+
+	var labels []string
+	if req.Resource != nil {
+		labels = append(labels, req.Resource.Labels...)
+		sort.Strings(labels)
+	}
+
+	return fmt.Sprintf("%d|%s|%s|%s|%s|%s|%s|%s",
+		gen,
+		req.Subject.GetUserId(),
+		req.Resource.GetType(),
+		req.Resource.GetName(),
+		req.Resource.GetId(),
+		req.Resource.GetEnvironment().String(),
+		strings.Join(labels, ","),
+		strings.Join(roles, ","),
+	)
 }
 
 func mockHR(userID string) *pb.HRResponse {
@@ -67,11 +98,16 @@ func (h *IAMHandler) logTrace(userID string, trace policy.PipelineTrace, steps [
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 }
 
-// ==========================
 // CREATE ACCESS REQUEST
-// ==========================
 
 func (h *IAMHandler) CreateAccessRequest(ctx context.Context, req *pb.AccessRequest) (*pb.WorkflowResponse, error) {
+	gen := h.policyEngine.Generation()
+	cacheKey := requestCacheKey(gen, req)
+	if cached, ok := h.cache.Get(cacheKey); ok {
+		log.Printf("cache hit for user=%s", req.Subject.GetUserId())
+		return cached, nil
+	}
+
 	engine := h.policyEngine.Get()
 	hr := mockHR(req.Subject.UserId)
 
@@ -112,10 +148,12 @@ func (h *IAMHandler) CreateAccessRequest(ctx context.Context, req *pb.AccessRequ
 
 	h.logTrace(req.Subject.UserId, trace, steps)
 
-	return &pb.WorkflowResponse{
+	resp := &pb.WorkflowResponse{
 		Steps:      steps,
 		TotalSteps: int32(len(steps)),
-	}, nil
+	}
+	h.cache.Put(cacheKey, resp)
+	return resp, nil
 }
 
 // expandPolicies создаёт копии политик, где Steps включает
@@ -140,43 +178,39 @@ func expandPolicies(policies []policy.Policy, req *pb.AccessRequest, hr *pb.HRRe
 	return expanded
 }
 
-// ==========================
 // EXPLAIN
-// ==========================
 
 func (h *IAMHandler) ExplainAccessRequest(ctx context.Context, req *pb.AccessRequest) (*pb.ExplainResponse, error) {
 	engine := h.policyEngine.Get()
 	hr := mockHR(req.Subject.UserId)
 
+	// engine.Explain уже возвращает отсортированный результат
 	results := engine.Explain(req, hr)
-
-	sort.SliceStable(results, func(i, j int) bool {
-		if results[i].Type == "override" && results[j].Type != "override" {
-			return true
-		}
-		if results[i].Type != "override" && results[j].Type == "override" {
-			return false
-		}
-		return results[i].Priority > results[j].Priority
-	})
 
 	var resp []*pb.PolicyExplain
 	for _, r := range results {
+		var condSteps []*pb.ConditionalStepExplain
+		for _, cs := range r.ConditionalSteps {
+			condSteps = append(condSteps, &pb.ConditionalStepExplain{
+				IfExpr:    cs.If,
+				Triggered: cs.Triggered,
+				StepNames: cs.Steps,
+			})
+		}
 		resp = append(resp, &pb.PolicyExplain{
-			PolicyId: r.PolicyID,
-			Type:     r.Type,
-			Priority: int32(r.Priority),
-			Matched:  r.Matched,
-			Reasons:  r.Reasons,
+			PolicyId:         r.PolicyID,
+			Type:             r.Type,
+			Priority:         int32(r.Priority),
+			Matched:          r.Matched,
+			Reasons:          r.Reasons,
+			ConditionalSteps: condSteps,
 		})
 	}
 
 	return &pb.ExplainResponse{Policies: resp}, nil
 }
 
-// ==========================
 // IS APPROVER
-// ==========================
 
 func (h *IAMHandler) IsApprover(ctx context.Context, req *pb.IsApproverRequest) (*pb.IsApproverResponse, error) {
 	engine := h.policyEngine.Get()
@@ -200,9 +234,7 @@ func (h *IAMHandler) IsApprover(ctx context.Context, req *pb.IsApproverRequest) 
 	return &pb.IsApproverResponse{IsApprover: false}, nil
 }
 
-// ==========================
 // APPROVER RESOLVER
-// ==========================
 
 func resolveApprovers(approvers policy.Approvers, hr *pb.HRResponse) []string {
 	var result []string

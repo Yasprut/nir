@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IAM Policy Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    .tab-active{border-bottom:2px solid #3b82f6;color:#2563eb;font-weight:500}
+    textarea{resize:vertical}
+    pre{white-space:pre-wrap;word-break:break-all}
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900" x-data="app()" x-init="init()" x-cloak>
+
+<!-- ===== LOGIN OVERLAY ===== -->
+<div x-show="!currentUser" class="fixed inset-0 bg-gradient-to-br from-blue-50 to-gray-100 flex items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8">
+    <div class="text-center mb-6">
+      <div class="text-3xl font-bold text-gray-800 mb-1">IAM Manager</div>
+      <p class="text-sm text-gray-400">Политики маршрутизации согласований</p>
+    </div>
+    <form @submit.prevent="doLogin()" class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Логин</label>
+        <input x-model="loginForm.username" type="text" autocomplete="username"
+          class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
+          placeholder="admin" :disabled="loginLoading">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Пароль</label>
+        <input x-model="loginForm.password" type="password" autocomplete="current-password"
+          class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
+          placeholder="••••••••" :disabled="loginLoading">
+      </div>
+      <template x-if="loginForm.error">
+        <p class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2" x-text="loginForm.error"></p>
+      </template>
+      <button type="submit" :disabled="loginLoading"
+        class="w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+        <span x-show="!loginLoading">Войти</span>
+        <span x-show="loginLoading">Вход...</span>
+      </button>
+    </form>
+    <div class="mt-5 pt-4 border-t border-gray-100">
+      <p class="text-xs text-gray-400 text-center mb-2">Демо-пользователи:</p>
+      <div class="grid grid-cols-2 gap-1.5 text-xs">
+        <template x-for="u in demoUsers" :key="u.login">
+          <button @click="loginForm.username=u.login;loginForm.password=u.pass"
+            class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-left">
+            <span class="px-1.5 py-0.5 rounded text-xs font-medium" :class="roleBadge(u.role)" x-text="u.role"></span>
+            <span class="text-gray-500 font-mono" x-text="u.login"></span>
+          </button>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== APP ===== -->
+<div x-show="currentUser">
+
+<!-- NAV -->
+<nav class="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
+  <div class="max-w-7xl mx-auto px-4 flex items-center h-12 gap-1">
+    <span class="font-semibold text-gray-800 mr-4 text-sm shrink-0">IAM Manager</span>
+    <template x-for="t in tabs" :key="t.id">
+      <button @click="tab=t.id" class="relative px-3 h-full text-sm text-gray-500 hover:text-gray-800 border-b-2 border-transparent transition-colors whitespace-nowrap"
+        :class="tab===t.id?'tab-active':''">
+        <span x-text="t.label"></span>
+        <template x-if="t.badge">
+          <span class="absolute top-2 right-0.5 w-4 h-4 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center leading-none" x-text="t.badge"></span>
+        </template>
+      </button>
+    </template>
+    <div class="ml-auto flex items-center gap-2 shrink-0">
+      <span class="text-xs px-2 py-0.5 rounded-full font-medium" :class="roleBadge(currentUser?.role)" x-text="currentUser?.role"></span>
+      <span class="text-sm text-gray-600 font-medium" x-text="currentUser?.username"></span>
+      <button @click="doLogout()" class="text-xs px-2.5 py-1 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-500">Выйти</button>
+    </div>
+  </div>
+</nav>
+
+<main class="max-w-7xl mx-auto px-4 py-6">
+
+<!-- ===== DASHBOARD ===== -->
+<div x-show="tab==='dashboard'">
+  <h2 class="text-base font-semibold text-gray-700 mb-5">Dashboard</h2>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <p class="text-xs text-gray-400 uppercase tracking-wide mb-1">Всего политик</p>
+      <p class="text-3xl font-bold text-gray-800" x-text="stats.total??0"></p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <p class="text-xs text-green-600 uppercase tracking-wide mb-1">Активных</p>
+      <p class="text-3xl font-bold text-green-600" x-text="stats.active??0"></p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <p class="text-xs text-gray-400 uppercase tracking-wide mb-1">Отключено</p>
+      <p class="text-3xl font-bold text-gray-400" x-text="stats.inactive??0"></p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <p class="text-xs text-gray-400 uppercase tracking-wide mb-2">По типам</p>
+      <div class="space-y-1">
+        <template x-for="[type,count] in Object.entries(stats.by_type??{})">
+          <div class="flex items-center gap-2 text-sm">
+            <span class="px-1.5 py-0.5 rounded text-xs font-medium" :class="typeBadge(type)" x-text="type"></span>
+            <span class="text-gray-600 font-medium" x-text="count"></span>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+  <div class="flex gap-3 flex-wrap">
+    <button @click="tab='tester'" class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium">Тестировать запрос</button>
+    <template x-if="canEdit()">
+      <button @click="openCreate()" class="px-4 py-2 bg-white border border-gray-300 text-sm rounded-lg hover:bg-gray-50">+ Новая политика</button>
+    </template>
+    <template x-if="canReview() && pendingPolicies.length>0">
+      <button @click="tab='review'" class="px-4 py-2 bg-orange-50 border border-orange-200 text-orange-700 text-sm rounded-lg hover:bg-orange-100 font-medium">
+        Ревью (<span x-text="pendingPolicies.length"></span>)
+      </button>
+    </template>
+  </div>
+</div>
+
+<!-- ===== ПОЛИТИКИ ===== -->
+<div x-show="tab==='policies'">
+  <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h2 class="text-base font-semibold text-gray-700">Политики</h2>
+    <div class="flex gap-2 flex-wrap">
+      <template x-if="canEdit()">
+        <button @click="triggerImport()" class="px-3 py-1.5 bg-white border border-gray-300 text-sm rounded-lg hover:bg-gray-50">↑ Импорт</button>
+      </template>
+      <button @click="exportPolicies(false)" :disabled="selectedPolicies.length===0" class="px-3 py-1.5 bg-white border border-gray-300 text-sm rounded-lg hover:bg-gray-50 disabled:opacity-40">
+        ↓ Выбранные (<span x-text="selectedPolicies.length"></span>)
+      </button>
+      <button @click="exportPolicies(true)" class="px-3 py-1.5 bg-white border border-gray-300 text-sm rounded-lg hover:bg-gray-50">↓ Все</button>
+      <template x-if="canEdit()">
+        <button @click="openCreate()" class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium">+ Новая</button>
+      </template>
+    </div>
+  </div>
+  <div class="flex items-center gap-3 mb-4 flex-wrap">
+    <select x-model="filterType" @change="applyFilter()" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white">
+      <option value="">Все типы</option>
+      <option value="baseline">baseline</option>
+      <option value="augment">augment</option>
+      <option value="override">override</option>
+      <option value="restrict">restrict</option>
+    </select>
+    <select x-model="filterEnabled" @change="applyFilter()" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white">
+      <option value="all">Все</option>
+      <option value="active">Активные</option>
+      <option value="inactive">Отключённые</option>
+    </select>
+    <span class="text-xs text-gray-400" x-text="filteredPolicies.length+' записей'"></span>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 border-b border-gray-200">
+        <tr>
+          <th class="px-3 py-2.5 w-8">
+            <input type="checkbox" class="rounded"
+              :checked="filteredPolicies.length>0 && filteredPolicies.every(p=>selectedPolicies.includes(p.policy_id))"
+              @change="toggleSelectAll()">
+          </th>
+          <th class="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">Policy ID</th>
+          <th class="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">Тип</th>
+          <th class="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">Приоритет</th>
+          <th class="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">Статус</th>
+          <th class="text-right px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">Действия</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        <template x-for="p in filteredPolicies" :key="p.policy_id">
+          <tr class="hover:bg-gray-50 transition-colors">
+            <td class="px-3 py-2.5">
+              <input type="checkbox" class="rounded" :checked="selectedPolicies.includes(p.policy_id)" @change="toggleSelect(p.policy_id)">
+            </td>
+            <td class="px-4 py-2.5 font-mono text-xs text-gray-700" x-text="p.policy_id"></td>
+            <td class="px-4 py-2.5"><span class="px-2 py-0.5 rounded text-xs font-medium" :class="typeBadge(p.type)" x-text="p.type"></span></td>
+            <td class="px-4 py-2.5 text-gray-500" x-text="p.priority"></td>
+            <td class="px-4 py-2.5">
+              <template x-if="isAdmin()">
+                <button @click="togglePolicy(p)" class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors" :class="p.enabled?'bg-green-500':'bg-gray-300'">
+                  <span class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform" :class="p.enabled?'translate-x-4':'translate-x-1'"></span>
+                </button>
+              </template>
+              <template x-if="!isAdmin()">
+                <span class="text-xs" :class="p.enabled?'text-green-600':'text-gray-400'" x-text="p.enabled?'активна':'выключена'"></span>
+              </template>
+            </td>
+            <td class="px-4 py-2.5 text-right">
+              <template x-if="isAdmin()">
+                <span>
+                  <button @click="openEdit(p)" class="text-blue-600 hover:underline text-xs mr-3">Изменить</button>
+                  <button @click="deletePolicy(p.policy_id)" class="text-red-500 hover:underline text-xs">Удалить</button>
+                </span>
+              </template>
+              <template x-if="!isAdmin() && canEdit()">
+                <button @click="openEdit(p)" class="text-blue-600 hover:underline text-xs">Просмотр</button>
+              </template>
+            </td>
+          </tr>
+        </template>
+        <template x-if="filteredPolicies.length===0">
+          <tr><td colspan="6" class="px-4 py-10 text-center text-sm text-gray-400">Политики не найдены</td></tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== РЕВЬЮ ===== -->
+<div x-show="tab==='review'">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-base font-semibold text-gray-700">Ревью политик</h2>
+    <button @click="fetchPending()" class="text-xs text-blue-600 hover:underline">Обновить</button>
+  </div>
+  <template x-if="pendingPolicies.length===0">
+    <div class="text-center text-gray-400 text-sm mt-20">
+      <p class="text-4xl mb-3">✅</p>
+      <p>Нет политик, ожидающих ревью</p>
+    </div>
+  </template>
+  <div class="space-y-4">
+    <template x-for="(p,idx) in pendingPolicies" :key="p.policy_id">
+      <div class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+        <!-- Header -->
+        <div class="px-4 py-3 border-b border-gray-100 flex items-center gap-3 flex-wrap">
+          <span class="text-orange-500 text-lg">⏳</span>
+          <span class="font-mono text-sm font-semibold text-gray-800" x-text="p.policy_id"></span>
+          <span class="px-1.5 py-0.5 rounded text-xs font-medium" :class="typeBadge(p.type)" x-text="p.type"></span>
+          <span class="text-xs text-gray-400">pri: <span x-text="p.priority"></span></span>
+          <span class="text-xs text-gray-400 ml-1">от <strong x-text="p.submitted_by||'—'"></strong></span>
+          <span class="text-xs text-gray-300 ml-1" x-text="p.submitted_at?new Date(p.submitted_at).toLocaleString('ru'):''"  ></span>
+          <div class="ml-auto flex gap-1">
+            <button @click="p._view=p._view==='json'?'card':'json'" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-50" x-text="p._view==='json'?'Карточка':'JSON'"></button>
+          </div>
+        </div>
+        <!-- Body -->
+        <div class="px-4 py-3">
+          <template x-if="p._view==='json'">
+            <pre class="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 overflow-auto max-h-48" x-text="JSON.stringify({selectors:p.selectors,steps:p.steps,conditional_steps:p.conditional_steps},null,2)"></pre>
+          </template>
+          <template x-if="p._view!=='json'">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+              <div class="bg-gray-50 rounded-lg p-2.5">
+                <p class="text-gray-400 mb-0.5">Тип</p>
+                <span class="px-1.5 py-0.5 rounded font-medium" :class="typeBadge(p.type)" x-text="p.type"></span>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-2.5">
+                <p class="text-gray-400 mb-0.5">Приоритет</p>
+                <p class="font-semibold text-gray-800" x-text="p.priority"></p>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-2.5">
+                <p class="text-gray-400 mb-0.5">Шагов</p>
+                <p class="font-semibold text-gray-800" x-text="(p.steps||[]).length??0"></p>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-2.5">
+                <p class="text-gray-400 mb-0.5">Усл. шагов</p>
+                <p class="font-semibold text-gray-800" x-text="(p.conditional_steps||[]).length??0"></p>
+              </div>
+            </div>
+          </template>
+        </div>
+        <!-- Actions -->
+        <div class="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center gap-2 flex-wrap">
+          <template x-if="!p._rejecting">
+            <span>
+              <button @click="doApprove(p.policy_id)" class="px-4 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700">Одобрить</button>
+              <button @click="p._rejecting=true;p._rejectComment=''" class="ml-2 px-4 py-1.5 bg-white border border-red-300 text-red-600 text-xs font-medium rounded-lg hover:bg-red-50">Отклонить</button>
+            </span>
+          </template>
+          <template x-if="p._rejecting">
+            <div class="flex items-center gap-2 flex-1 flex-wrap">
+              <input x-model="p._rejectComment" class="flex-1 text-xs border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-red-400 min-w-48" placeholder="Причина отклонения (необязательно)">
+              <button @click="doReject(p.policy_id,p._rejectComment)" class="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700">Подтвердить</button>
+              <button @click="p._rejecting=false" class="px-3 py-1.5 border border-gray-300 text-xs rounded-lg hover:bg-white">Отмена</button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- ===== ТЕСТЕР ===== -->
+<div x-show="tab==='tester'">
+  <h2 class="text-base font-semibold text-gray-700 mb-4">Тестер маршрута согласований</h2>
+  <div class="grid md:grid-cols-5 gap-6">
+
+    <!-- ФОРМА -->
+    <div class="md:col-span-2 bg-white border border-gray-200 rounded-xl p-4 shadow-sm self-start space-y-3">
+      <p class="text-xs font-medium text-gray-600 uppercase tracking-wide">Субъект</p>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">User ID</label>
+        <input x-model="testForm.user_id" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5" placeholder="user-123">
+      </div>
+      <p class="text-xs font-medium text-gray-600 uppercase tracking-wide pt-1">Ресурс</p>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Type</label>
+          <input x-model="testForm.resource_type" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5" placeholder="database">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Environment</label>
+          <select x-model="testForm.environment" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white">
+            <option>PROD</option><option>STAGE</option><option>DEV</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Name</label>
+          <input x-model="testForm.resource_name" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5" placeholder="my-db">
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">ID</label>
+          <input x-model="testForm.resource_id" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5" placeholder="res-42">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Labels <span class="text-gray-400">(через запятую)</span></label>
+        <input x-model="testForm.labels" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5" placeholder="critical, pci-dss">
+      </div>
+      <p class="text-xs font-medium text-gray-600 uppercase tracking-wide pt-1">Доступ</p>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Roles <span class="text-gray-400">(через запятую)</span></label>
+        <input x-model="testForm.roles" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5" placeholder="admin, viewer">
+      </div>
+      <div class="pt-1 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+        HR: department=<strong>finance</strong>, groups=<strong>risk-team</strong> (mock)
+      </div>
+      <button @click="runTest()" :disabled="testLoading" class="w-full py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
+        <span x-show="!testLoading">Запустить</span><span x-show="testLoading">Выполняется...</span>
+      </button>
+    </div>
+
+    <!-- РЕЗУЛЬТАТЫ -->
+    <div class="md:col-span-3 space-y-5">
+      <!-- ошибка -->
+      <template x-if="testError || explainError">
+        <div class="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-sm">
+          <strong>Ошибка:</strong> <span x-text="testError||explainError"></span>
+        </div>
+      </template>
+
+      <!-- маршрут шагов -->
+      <template x-if="testResult">
+        <div>
+          <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
+            Маршрут согласований — <span x-text="testResult.total"></span> шагов
+          </p>
+          <div class="space-y-2">
+            <template x-for="(step,i) in testResult.steps" :key="i">
+              <div class="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-xs text-gray-400 bg-gray-100 rounded-full w-6 h-6 flex items-center justify-center font-mono" x-text="i+1"></span>
+                  <span class="font-medium text-sm text-gray-800" x-text="step.name"></span>
+                  <span class="ml-auto px-2 py-0.5 text-xs rounded-full font-medium" :class="step.mode==='ALL'?'bg-purple-100 text-purple-700':'bg-gray-100 text-gray-600'" x-text="step.mode"></span>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="a in step.approvers" :key="a">
+                    <span class="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full font-mono" x-text="a"></span>
+                  </template>
+                </div>
+              </div>
+            </template>
+            <template x-if="testResult.steps.length===0">
+              <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-yellow-700 text-sm">Ни одна политика не сматчилась с этим запросом</div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- explain breakdown -->
+      <template x-if="explainResult">
+        <div>
+          <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Разбор по политикам</p>
+
+          <!-- совпавшие -->
+          <template x-if="explainResult.policies.filter(p=>p.matched).length > 0">
+            <div class="mb-3">
+              <p class="text-xs text-green-700 font-medium mb-1.5" x-text="'✅ Совпало: '+explainResult.policies.filter(p=>p.matched).length"></p>
+              <div class="space-y-2">
+                <template x-for="p in explainResult.policies.filter(p=>p.matched)" :key="p.policy_id">
+                  <div class="bg-white border border-gray-200 border-l-4 border-l-green-500 rounded-xl p-3 shadow-sm">
+                    <div class="flex items-center gap-2 flex-wrap mb-1.5">
+                      <span class="font-mono text-xs font-medium text-gray-800" x-text="p.policy_id"></span>
+                      <span class="px-1.5 py-0.5 rounded text-xs font-medium" :class="typeBadge(p.type)" x-text="p.type"></span>
+                      <span class="text-xs text-gray-400 ml-auto">pri: <span x-text="p.priority"></span></span>
+                    </div>
+                    <div class="space-y-0.5">
+                      <template x-for="reason in p.reasons" :key="reason">
+                        <p class="text-xs" :class="reason.includes('NOT')?'text-red-500':'text-green-600'">
+                          <span x-text="reason.includes('NOT')?'✗ ':'✓ '"></span><span x-text="reason"></span>
+                        </p>
+                      </template>
+                    </div>
+                    <template x-if="p.conditional_steps && p.conditional_steps.length>0">
+                      <div class="mt-2 pt-2 border-t border-gray-100">
+                        <p class="text-xs text-gray-400 mb-1">Условные шаги:</p>
+                        <template x-for="cs in p.conditional_steps" :key="cs.if">
+                          <div class="text-xs flex items-baseline gap-1" :class="cs.triggered?'text-amber-700':'text-gray-400'">
+                            <span x-text="cs.triggered?'⚡':'○'"></span>
+                            <code class="bg-gray-100 px-1 rounded" x-text="cs.if"></code>
+                            <template x-if="cs.triggered && cs.steps && cs.steps.length">
+                              <span>→ <span class="font-medium" x-text="cs.steps.join(', ')"></span></span>
+                            </template>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- не совпавшие -->
+          <template x-if="explainResult.policies.filter(p=>!p.matched).length > 0">
+            <div>
+              <p class="text-xs text-gray-400 font-medium mb-1.5" x-text="'❌ Не совпало: '+explainResult.policies.filter(p=>!p.matched).length"></p>
+              <div class="space-y-1">
+                <template x-for="p in explainResult.policies.filter(p=>!p.matched)" :key="p.policy_id">
+                  <div class="bg-white border border-gray-100 rounded-xl p-2.5 opacity-60 hover:opacity-100 transition-opacity">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="font-mono text-xs text-gray-500" x-text="p.policy_id"></span>
+                      <span class="px-1.5 py-0.5 rounded text-xs" :class="typeBadge(p.type)" x-text="p.type"></span>
+                      <button @click="p._expanded=!p._expanded" class="ml-auto text-xs text-blue-400 hover:text-blue-600" x-text="p._expanded?'свернуть':'подробнее'"></button>
+                    </div>
+                    <div class="mt-1 space-y-0.5" x-show="p._expanded">
+                      <template x-for="reason in p.reasons" :key="reason">
+                        <p class="text-xs" :class="reason.includes('NOT')?'text-red-400':'text-gray-400'">
+                          <span x-text="reason.includes('NOT')?'✗ ':'✓ '"></span><span x-text="reason"></span>
+                        </p>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- пустое состояние -->
+      <template x-if="!testResult && !testError && !explainResult && !explainError">
+        <div class="text-center text-gray-400 text-sm mt-16">
+          <p class="text-4xl mb-3">🔍</p>
+          <p>Заполните форму и нажмите «Запустить»</p>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ПОЛЬЗОВАТЕЛИ ===== -->
+<div x-show="tab==='users'">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-base font-semibold text-gray-700">Пользователи</h2>
+    <button @click="showUserModal=true;userForm={username:'',password:'',role:'viewer'};userError=''"
+      class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 font-medium">+ Добавить</button>
+  </div>
+  <div class="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 border-b border-gray-200">
+        <tr>
+          <th class="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">Логин</th>
+          <th class="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">Роль</th>
+          <th class="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">Создан</th>
+          <th class="text-right px-4 py-2.5 text-xs font-medium text-gray-500 uppercase">Действия</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        <template x-for="u in users" :key="u.id">
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-2.5 font-mono text-xs text-gray-700 font-medium" x-text="u.username"></td>
+            <td class="px-4 py-2.5"><span class="px-2 py-0.5 rounded text-xs font-medium" :class="roleBadge(u.role)" x-text="u.role"></span></td>
+            <td class="px-4 py-2.5 text-xs text-gray-400" x-text="new Date(u.created_at).toLocaleDateString('ru')"></td>
+            <td class="px-4 py-2.5 text-right">
+              <button @click="openChangePassword(u)" class="text-blue-600 hover:underline text-xs mr-3">Пароль</button>
+              <button @click="deleteUser(u)" :disabled="u.id===currentUser?.id" class="text-red-500 hover:underline text-xs disabled:opacity-30 disabled:cursor-not-allowed">Удалить</button>
+            </td>
+          </tr>
+        </template>
+        <template x-if="users.length===0">
+          <tr><td colspan="4" class="px-4 py-10 text-center text-sm text-gray-400">Нет пользователей</td></tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</main>
+</div><!-- /x-show="currentUser" -->
+
+<!-- ===== МОДАЛ ПОЛИТИКИ ===== -->
+<div x-show="showModal" x-cloak class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" @keydown.escape.window="showModal=false">
+  <div @click.outside="showModal=false" class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+    <div class="px-5 pt-4 pb-0 border-b border-gray-100">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold text-gray-800" x-text="modalMode==='create'?'Новая политика':'Редактировать: '+policyForm.policy_id"></h3>
+        <button @click="showModal=false" class="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
+      </div>
+      <div class="flex gap-0 -mb-px">
+        <template x-for="(t,i) in modalTabs" :key="t.id">
+          <button @click="policyForm.modalTab=t.id" class="px-4 py-2 text-sm border-b-2 transition-colors"
+            :class="policyForm.modalTab===t.id?'border-blue-500 text-blue-700 font-medium':'border-transparent text-gray-500 hover:text-gray-700'">
+            <span x-text="(i+1)+'. '+t.label"></span>
+          </button>
+        </template>
+      </div>
+    </div>
+    <div class="flex-1 overflow-y-auto px-5 py-4">
+
+      <!-- Вкладка 1: Основное -->
+      <div x-show="policyForm.modalTab==='basic'" class="space-y-4">
+        <div class="grid grid-cols-2 gap-4">
+          <div class="col-span-2">
+            <label class="block text-xs text-gray-500 mb-1">Policy ID <span class="text-red-500">*</span></label>
+            <input x-model="policyForm.policy_id" :disabled="modalMode==='edit'"
+              class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:border-blue-400"
+              placeholder="baseline-database-prod">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Тип политики</label>
+            <select x-model="policyForm.type" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white">
+              <option value="baseline">baseline — основа маршрута</option>
+              <option value="augment">augment — добавляет шаги</option>
+              <option value="override">override — полная замена</option>
+              <option value="restrict">restrict — удаляет шаги</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Приоритет</label>
+            <input x-model.number="policyForm.priority" type="number" min="0" max="9999"
+              class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400">
+            <p class="text-xs text-gray-400 mt-1">Выше число — раньше применяется</p>
+          </div>
+          <div class="col-span-2 flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+            <input type="checkbox" x-model="policyForm.enabled" id="modal-enabled" class="w-4 h-4 rounded text-blue-600">
+            <div>
+              <label for="modal-enabled" class="text-sm font-medium text-gray-700">Активная политика</label>
+              <p class="text-xs text-gray-400">Неактивные политики не участвуют в маршрутизации</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Вкладка 2: Селекторы -->
+      <div x-show="policyForm.modalTab==='selectors'" class="space-y-4">
+        <p class="text-xs text-gray-500">Политика применяется только когда запрос соответствует всем указанным условиям. Оставьте «*» — применяется ко всем.</p>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Тип ресурса</label>
+            <div class="flex gap-1">
+              <input x-model="policyForm.sel_resource_type" class="flex-1 text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 font-mono focus:outline-none focus:border-blue-400" placeholder="database">
+              <button @click="policyForm.sel_resource_type='*'" class="px-2 py-1 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-500">Любой</button>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Среда (environment)</label>
+            <select x-model="policyForm.sel_environment" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white">
+              <option value="*">Любая (*)</option>
+              <option value="PROD">PROD</option>
+              <option value="STAGE">STAGE</option>
+              <option value="DEV">DEV</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Имя ресурса</label>
+            <input x-model="policyForm.sel_resource_name" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 font-mono focus:outline-none focus:border-blue-400" placeholder="Пусто = любое имя">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">ID ресурса</label>
+            <input x-model="policyForm.sel_resource_id" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 font-mono focus:outline-none focus:border-blue-400" placeholder="Пусто = любой ID">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Отдел (department)</label>
+            <input x-model="policyForm.sel_department" class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 font-mono focus:outline-none focus:border-blue-400" placeholder="finance">
+          </div>
+          <div></div>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Labels (метки ресурса — все должны присутствовать)</label>
+          <div class="flex flex-wrap gap-1 mb-2 min-h-6">
+            <template x-for="(l,i) in policyForm.sel_labels" :key="i">
+              <span class="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full flex items-center gap-1">
+                <span x-text="l"></span>
+                <button @click="policyForm.sel_labels.splice(i,1)" class="text-blue-300 hover:text-red-500 leading-none">×</button>
+              </span>
+            </template>
+          </div>
+          <div class="flex gap-1">
+            <input x-model="policyForm._new_label" @keydown.enter.prevent="addTag('sel_labels','_new_label')" class="flex-1 text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400" placeholder="critical">
+            <button @click="addTag('sel_labels','_new_label')" class="px-3 py-1.5 bg-gray-100 text-sm rounded-lg hover:bg-gray-200">+</button>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Roles (роли пользователя — хотя бы одна должна совпасть)</label>
+          <div class="flex flex-wrap gap-1 mb-2 min-h-6">
+            <template x-for="(r,i) in policyForm.sel_roles" :key="i">
+              <span class="px-2 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-full flex items-center gap-1">
+                <span x-text="r"></span>
+                <button @click="policyForm.sel_roles.splice(i,1)" class="text-purple-300 hover:text-red-500 leading-none">×</button>
+              </span>
+            </template>
+          </div>
+          <div class="flex gap-1">
+            <input x-model="policyForm._new_role" @keydown.enter.prevent="addTag('sel_roles','_new_role')" class="flex-1 text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400" placeholder="admin">
+            <button @click="addTag('sel_roles','_new_role')" class="px-3 py-1.5 bg-gray-100 text-sm rounded-lg hover:bg-gray-200">+</button>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Groups (HR-группы — хотя бы одна должна совпасть)</label>
+          <div class="flex flex-wrap gap-1 mb-2 min-h-6">
+            <template x-for="(g,i) in policyForm.sel_groups" :key="i">
+              <span class="px-2 py-0.5 bg-green-50 text-green-700 text-xs rounded-full flex items-center gap-1">
+                <span x-text="g"></span>
+                <button @click="policyForm.sel_groups.splice(i,1)" class="text-green-300 hover:text-red-500 leading-none">×</button>
+              </span>
+            </template>
+          </div>
+          <div class="flex gap-1">
+            <input x-model="policyForm._new_group" @keydown.enter.prevent="addTag('sel_groups','_new_group')" class="flex-1 text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400" placeholder="risk-team">
+            <button @click="addTag('sel_groups','_new_group')" class="px-3 py-1.5 bg-gray-100 text-sm rounded-lg hover:bg-gray-200">+</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Вкладка 3: Шаги -->
+      <div x-show="policyForm.modalTab==='steps'">
+        <p class="text-xs text-gray-500 mb-3">Порядок шагов определяется полем «Порядок» (меньше = раньше).</p>
+        <div class="space-y-3">
+          <template x-for="(step,si) in policyForm.steps" :key="si">
+            <div class="border border-gray-200 rounded-xl p-3 space-y-3 bg-gray-50">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-medium text-gray-400 w-6 text-center" x-text="si+1"></span>
+                <input x-model="step.name" class="flex-1 text-sm font-medium border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-blue-400" placeholder="Название шага">
+                <input x-model.number="step.order" type="number" min="1" class="w-20 text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-center" placeholder="Порядок">
+                <select x-model="step.mode" class="text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white">
+                  <option value="ANY">ANY — любой</option>
+                  <option value="ALL">ALL — все</option>
+                </select>
+                <button @click="policyForm.steps.splice(si,1)" class="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
+              </div>
+              <div>
+                <p class="text-xs text-gray-500 mb-1.5">Статические одобряющие (конкретные ID)</p>
+                <div class="flex flex-wrap gap-1 mb-1.5 min-h-5">
+                  <template x-for="(a,ai) in step.static_approvers" :key="ai">
+                    <span class="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full flex items-center gap-1 font-mono">
+                      <span x-text="a"></span>
+                      <button @click="step.static_approvers.splice(ai,1)" class="text-blue-300 hover:text-red-500 leading-none">×</button>
+                    </span>
+                  </template>
+                </div>
+                <div class="flex gap-1">
+                  <input x-model="step._new_approver" @keydown.enter.prevent="if(step._new_approver.trim()){step.static_approvers.push(step._new_approver.trim());step._new_approver=''}" class="flex-1 text-xs border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white font-mono focus:outline-none focus:border-blue-400" placeholder="approver-id">
+                  <button @click="if(step._new_approver.trim()){step.static_approvers.push(step._new_approver.trim());step._new_approver=''}" class="px-3 py-1.5 bg-gray-200 text-xs rounded-lg hover:bg-gray-300">+</button>
+                </div>
+              </div>
+              <div>
+                <p class="text-xs text-gray-500 mb-1.5">Динамические одобряющие (из HR-данных)</p>
+                <div class="flex flex-wrap gap-2">
+                  <template x-for="role in ['manager','hr_bp','department_head','group_lead']" :key="role">
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                      <input type="checkbox" class="rounded text-blue-600"
+                        :checked="step.dynamic_approvers.includes(role)"
+                        @change="toggleDynApprover(step,role)">
+                      <span x-text="role"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+        <button @click="policyForm.steps.push({name:'',mode:'ANY',order:policyForm.steps.length+1,static_approvers:[],dynamic_approvers:[],_new_approver:''})"
+          class="mt-3 px-4 py-2 text-sm text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 w-full">
+          + Добавить шаг
+        </button>
+        <template x-if="policyForm.steps.length===0">
+          <p class="text-xs text-gray-400 text-center mt-2">Нажмите «Добавить шаг» чтобы начать</p>
+        </template>
+      </div>
+
+      <!-- Вкладка 4: Условные шаги -->
+      <div x-show="policyForm.modalTab==='conditions'">
+        <p class="text-xs text-gray-500 mb-3">Шаги добавляются в маршрут только если выполняется условие.</p>
+        <div class="space-y-4">
+          <template x-for="(cs,ci) in policyForm.cond_steps" :key="ci">
+            <div class="border border-orange-200 bg-orange-50 rounded-xl p-3 space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-orange-700">Условие <span x-text="ci+1"></span></span>
+                <button @click="policyForm.cond_steps.splice(ci,1)" class="text-red-400 hover:text-red-600 text-xs">Удалить</button>
+              </div>
+              <template x-if="cs._raw_dsl !== null">
+                <div>
+                  <p class="text-xs text-amber-700 mb-1">⚠️ Сложное выражение — редактируется вручную</p>
+                  <textarea x-model="cs._raw_dsl" @input="cs._dsl_preview=cs._raw_dsl" rows="2" class="w-full text-xs font-mono border border-orange-300 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:border-orange-400"></textarea>
+                </div>
+              </template>
+              <template x-if="cs._raw_dsl === null">
+                <div class="space-y-2">
+                  <p class="text-xs text-gray-500">Выбирайте AND/OR между строками независимо:</p>
+                  <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    <template x-for="(cond,condi) in cs.conditions" :key="condi">
+                      <div class="flex items-center gap-2 px-3 py-2 border-b border-gray-100 last:border-0">
+                        <template x-if="condi===0">
+                          <span class="text-xs text-gray-400 w-8 text-right flex-shrink-0 font-mono">IF</span>
+                        </template>
+                        <template x-if="condi>0">
+                          <select x-model="cond.connector" @change="updateDSL(ci)" class="text-xs border border-gray-300 rounded px-1.5 py-1.5 bg-white w-14 flex-shrink-0 font-mono font-semibold">
+                            <option value="AND">AND</option>
+                            <option value="OR">OR</option>
+                          </select>
+                        </template>
+                        <select x-model="cond.field" @change="onFieldChange(ci,condi);updateDSL(ci)" class="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white min-w-0">
+                          <optgroup label="HR-данные">
+                            <option value="hr.department">hr.department</option>
+                            <option value="hr.groups">hr.groups</option>
+                          </optgroup>
+                          <optgroup label="Ресурс">
+                            <option value="resource.type">resource.type</option>
+                            <option value="resource.environment">resource.environment</option>
+                            <option value="resource.labels">resource.labels</option>
+                          </optgroup>
+                          <optgroup label="Пользователь">
+                            <option value="subject.roles">subject.roles</option>
+                          </optgroup>
+                        </select>
+                        <select x-model="cond.op" @change="updateDSL(ci)" class="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white">
+                          <template x-if="isListField(cond.field)">
+                            <option value="IN">IN (содержит)</option>
+                          </template>
+                          <template x-if="isListField(cond.field)">
+                            <option value="NOT IN">NOT IN (не содержит)</option>
+                          </template>
+                          <template x-if="!isListField(cond.field)">
+                            <option value="==">== (равно)</option>
+                          </template>
+                          <template x-if="!isListField(cond.field)">
+                            <option value="!=">!= (не равно)</option>
+                          </template>
+                        </select>
+                        <template x-if="cond.field==='resource.environment'">
+                          <select x-model="cond.value" @change="updateDSL(ci)" class="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white">
+                            <option>PROD</option><option>STAGE</option><option>DEV</option>
+                          </select>
+                        </template>
+                        <template x-if="cond.field!=='resource.environment'">
+                          <input x-model="cond.value" @input="updateDSL(ci)" type="text" class="flex-1 text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400" placeholder="значение">
+                        </template>
+                        <button @click="cs.conditions.splice(condi,1);updateDSL(ci)" class="text-red-400 hover:text-red-600 text-base leading-none flex-shrink-0">×</button>
+                      </div>
+                    </template>
+                    <div class="px-3 py-2">
+                      <button @click="cs.conditions.push({field:'hr.department',op:'==',value:'',connector:'AND'});updateDSL(ci)" class="text-xs text-blue-600 hover:underline">+ Добавить условие</button>
+                    </div>
+                  </div>
+                  <div class="bg-white border border-gray-200 rounded-lg px-3 py-2">
+                    <span class="text-xs text-gray-400">Выражение: </span>
+                    <code class="text-xs font-mono text-gray-700" x-text="cs._dsl_preview||'—'"></code>
+                  </div>
+                </div>
+              </template>
+              <div>
+                <p class="text-xs font-medium text-gray-600 mb-2">Шаги, добавляемые при срабатывании:</p>
+                <div class="space-y-2">
+                  <template x-for="(step,si) in cs.steps" :key="si">
+                    <div class="border border-gray-200 rounded-lg p-2.5 space-y-2 bg-white">
+                      <div class="flex items-center gap-2">
+                        <input x-model="step.name" class="flex-1 text-xs font-medium border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400" placeholder="Название шага">
+                        <input x-model.number="step.order" type="number" min="1" class="w-16 text-xs border border-gray-300 rounded px-2 py-1.5 text-center" placeholder="Порядок">
+                        <select x-model="step.mode" class="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white">
+                          <option value="ANY">ANY</option>
+                          <option value="ALL">ALL</option>
+                        </select>
+                        <button @click="cs.steps.splice(si,1)" class="text-red-400 hover:text-red-600 leading-none">×</button>
+                      </div>
+                      <div>
+                        <div class="flex flex-wrap gap-1 mb-1 min-h-4">
+                          <template x-for="(a,ai) in step.static_approvers" :key="ai">
+                            <span class="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full flex items-center gap-1 font-mono">
+                              <span x-text="a"></span>
+                              <button @click="step.static_approvers.splice(ai,1)" class="text-blue-300 hover:text-red-500 leading-none">×</button>
+                            </span>
+                          </template>
+                        </div>
+                        <div class="flex gap-1">
+                          <input x-model="step._new_approver" @keydown.enter.prevent="if(step._new_approver.trim()){step.static_approvers.push(step._new_approver.trim());step._new_approver=''}" class="flex-1 text-xs border border-gray-300 rounded px-2 py-1 bg-white font-mono" placeholder="approver-id">
+                          <button @click="if(step._new_approver.trim()){step.static_approvers.push(step._new_approver.trim());step._new_approver=''}" class="px-2 py-1 bg-gray-200 text-xs rounded hover:bg-gray-300">+</button>
+                        </div>
+                        <div class="flex flex-wrap gap-2 mt-1.5">
+                          <template x-for="role in ['manager','hr_bp','department_head','group_lead']" :key="role">
+                            <label class="flex items-center gap-1 text-xs cursor-pointer">
+                              <input type="checkbox" class="rounded text-blue-600" :checked="step.dynamic_approvers.includes(role)" @change="toggleDynApprover(step,role)">
+                              <span x-text="role"></span>
+                            </label>
+                          </template>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+                <button @click="cs.steps.push({name:'',mode:'ANY',order:cs.steps.length+1,static_approvers:[],dynamic_approvers:[],_new_approver:''})"
+                  class="mt-2 px-3 py-1.5 text-xs text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 w-full">
+                  + Добавить шаг к этому условию
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <button @click="policyForm.cond_steps.push({conditions:[{field:'hr.department',op:'==',value:'',connector:'AND'}],steps:[],_dsl_preview:'',_raw_dsl:null})"
+          class="mt-3 px-4 py-2 text-sm text-orange-600 border border-orange-200 bg-orange-50 rounded-lg hover:bg-orange-100 w-full">
+          + Добавить условный шаг
+        </button>
+      </div>
+
+    </div>
+    <div class="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
+      <div class="flex gap-2">
+        <button @click="prevModalTab()" x-show="policyForm.modalTab!=='basic'" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">← Назад</button>
+        <button @click="nextModalTab()" x-show="policyForm.modalTab!=='conditions'" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Далее →</button>
+      </div>
+      <div class="flex gap-2">
+        <button @click="showModal=false" class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Отмена</button>
+        <template x-if="isAdmin()">
+          <button @click="savePolicy()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">Сохранить</button>
+        </template>
+        <template x-if="!isAdmin() && canEdit()">
+          <button @click="savePolicy()" class="px-4 py-2 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium">Отправить на ревью</button>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== МОДАЛ ИМПОРТА ===== -->
+<div x-show="showImportModal" x-cloak class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" @keydown.escape.window="showImportModal=false">
+  <div @click.outside="showImportModal=false" class="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[92vh] flex flex-col">
+    <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+      <div>
+        <h3 class="font-semibold text-gray-800">Импорт политик</h3>
+        <p class="text-xs text-gray-500 mt-0.5" x-text="'Файл: '+importFileName+' · '+importItems.length+' политик, '+importItems.filter(i=>i.existing).length+' конфликтов'"></p>
+      </div>
+      <button @click="showImportModal=false" class="text-gray-400 hover:text-gray-700 text-xl">✕</button>
+    </div>
+    <div class="px-5 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+      <button @click="importItems.filter(i=>!i.existing).forEach(i=>i.resolution='apply')"
+        class="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">
+        ✓ Авто-принять все без конфликтов
+      </button>
+      <span class="text-xs text-gray-500">
+        Решено конфликтов: <span class="font-medium" x-text="importItems.filter(i=>i.existing&&i.resolution).length"></span>/<span x-text="importItems.filter(i=>i.existing).length"></span>
+      </span>
+    </div>
+    <div class="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+
+      <!-- Новые политики (с карточками) -->
+      <template x-if="importItems.filter(i=>!i.existing).length>0">
+        <div>
+          <p class="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Новые политики (<span x-text="importItems.filter(i=>!i.existing).length"></span>)</p>
+          <div class="space-y-2">
+            <template x-for="(item,idx) in importItems.filter(i=>!i.existing)" :key="idx">
+              <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                <!-- Строка с чекбоксом -->
+                <div class="flex items-center gap-3 px-4 py-2.5">
+                  <input type="checkbox" class="rounded text-green-600"
+                    :checked="item.resolution==='apply'"
+                    @change="item.resolution=$event.target.checked?'apply':'skip'">
+                  <span class="font-mono text-xs text-gray-700 flex-1 font-medium" x-text="item.policy.policy_id"></span>
+                  <span class="px-1.5 py-0.5 rounded text-xs font-medium" :class="typeBadge(item.policy.type)" x-text="item.policy.type"></span>
+                  <span class="text-xs text-gray-400">pri: <span x-text="item.policy.priority"></span></span>
+                  <span class="text-xs px-2 py-0.5 rounded-full" :class="item.resolution==='apply'?'bg-green-100 text-green-700':'bg-gray-100 text-gray-500'" x-text="item.resolution==='apply'?'будет добавлена':'пропустить'"></span>
+                  <div class="flex gap-1">
+                    <button @click="item._view=item._view==='json'?'card':'json'" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-50" x-text="item._view==='json'?'Карточка':'JSON'"></button>
+                    <button @click="item._expanded=!item._expanded" class="px-2 py-0.5 text-xs border border-gray-200 rounded hover:bg-gray-50" x-text="item._expanded?'−':'+'"></button>
+                  </div>
+                </div>
+                <!-- Детали (раскрываются) -->
+                <div x-show="item._expanded" class="border-t border-gray-100 px-4 py-3">
+                  <template x-if="item._view==='json'">
+                    <pre class="text-xs text-gray-600 overflow-auto max-h-36 bg-gray-50 rounded p-2" x-text="JSON.stringify(item.policy,null,2)"></pre>
+                  </template>
+                  <template x-if="item._view!=='json'">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                      <div class="bg-gray-50 rounded-lg p-2">
+                        <p class="text-gray-400 mb-0.5">Тип</p>
+                        <span class="px-1.5 py-0.5 rounded font-medium" :class="typeBadge(item.policy.type)" x-text="item.policy.type"></span>
+                      </div>
+                      <div class="bg-gray-50 rounded-lg p-2">
+                        <p class="text-gray-400 mb-0.5">Приоритет</p>
+                        <p class="font-semibold text-gray-800" x-text="item.policy.priority"></p>
+                      </div>
+                      <div class="bg-gray-50 rounded-lg p-2">
+                        <p class="text-gray-400 mb-0.5">Активна</p>
+                        <p class="font-semibold" :class="item.policy.enabled?'text-green-600':'text-gray-400'" x-text="item.policy.enabled?'да':'нет'"></p>
+                      </div>
+                      <div class="bg-gray-50 rounded-lg p-2">
+                        <p class="text-gray-400 mb-0.5">Шагов</p>
+                        <p class="font-semibold text-gray-800" x-text="(item.policy.steps||[]).length"></p>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- Конфликты -->
+      <template x-if="importItems.filter(i=>i.existing).length>0">
+        <div>
+          <p class="text-xs font-semibold text-orange-700 uppercase tracking-wide mb-2">Конфликты (<span x-text="importItems.filter(i=>i.existing).length"></span>)</p>
+          <div class="space-y-3">
+            <template x-for="(item,idx) in importItems.filter(i=>i.existing)" :key="idx">
+              <div class="border border-orange-200 rounded-xl overflow-hidden">
+                <div class="bg-orange-50 px-4 py-2.5 flex items-center gap-2">
+                  <span class="text-orange-600">⚠️</span>
+                  <span class="font-mono text-xs font-medium text-gray-800" x-text="item.policy.policy_id"></span>
+                  <span class="text-xs text-orange-600">уже существует</span>
+                  <div class="ml-auto flex gap-1">
+                    <button @click="item._view='card'" :class="item._view!=='json'?'bg-white shadow-sm':'text-gray-500'" class="px-2 py-0.5 text-xs rounded border border-gray-200">Карточка</button>
+                    <button @click="item._view='json'" :class="item._view==='json'?'bg-white shadow-sm':'text-gray-500'" class="px-2 py-0.5 text-xs rounded border border-gray-200">JSON</button>
+                  </div>
+                </div>
+                <div class="grid grid-cols-2 divide-x divide-gray-200">
+                  <div class="p-3">
+                    <p class="text-xs font-semibold text-gray-500 mb-2">ТЕКУЩАЯ (в базе)</p>
+                    <template x-if="item._view!=='json'">
+                      <div class="space-y-1 text-xs">
+                        <div class="flex gap-2"><span class="text-gray-400 w-16 flex-shrink-0">Тип:</span><span class="px-1.5 py-0.5 rounded font-medium" :class="typeBadge(item.existing.type)" x-text="item.existing.type"></span></div>
+                        <div class="flex gap-2"><span class="text-gray-400 w-16 flex-shrink-0">Приоритет:</span><span x-text="item.existing.priority"></span></div>
+                        <div class="flex gap-2"><span class="text-gray-400 w-16 flex-shrink-0">Активна:</span><span x-text="item.existing.enabled?'да':'нет'"></span></div>
+                        <div class="flex gap-2"><span class="text-gray-400 w-16 flex-shrink-0">Шагов:</span><span x-text="(item.existing.steps||[]).length"></span></div>
+                        <div class="flex gap-2"><span class="text-gray-400 w-16 flex-shrink-0">Усл.шагов:</span><span x-text="(item.existing.conditional_steps||[]).length"></span></div>
+                      </div>
+                    </template>
+                    <template x-if="item._view==='json'">
+                      <pre class="text-xs text-gray-600 overflow-auto max-h-36 bg-gray-50 rounded p-1" x-text="JSON.stringify(item.existing,null,2)"></pre>
+                    </template>
+                  </div>
+                  <div class="p-3">
+                    <p class="text-xs font-semibold text-blue-600 mb-2">НОВАЯ (из файла)</p>
+                    <template x-if="item._view!=='json'">
+                      <div class="space-y-1 text-xs">
+                        <div class="flex gap-2"><span class="text-gray-400 w-16 flex-shrink-0">Тип:</span><span class="px-1.5 py-0.5 rounded font-medium" :class="typeBadge(item.policy.type)" x-text="item.policy.type"></span></div>
+                        <div class="flex gap-2 items-center"><span class="text-gray-400 w-16 flex-shrink-0">Приоритет:</span><span :class="item.policy.priority!==item.existing.priority?'text-blue-600 font-medium':''" x-text="item.policy.priority"></span></div>
+                        <div class="flex gap-2"><span class="text-gray-400 w-16 flex-shrink-0">Активна:</span><span x-text="item.policy.enabled?'да':'нет'"></span></div>
+                        <div class="flex gap-2"><span class="text-gray-400 w-16 flex-shrink-0">Шагов:</span><span :class="(item.policy.steps||[]).length!==(item.existing.steps||[]).length?'text-blue-600 font-medium':''" x-text="(item.policy.steps||[]).length"></span></div>
+                        <div class="flex gap-2"><span class="text-gray-400 w-16 flex-shrink-0">Усл.шагов:</span><span x-text="(item.policy.conditional_steps||[]).length"></span></div>
+                      </div>
+                    </template>
+                    <template x-if="item._view==='json'">
+                      <pre class="text-xs text-gray-600 overflow-auto max-h-36 bg-gray-50 rounded p-1" x-text="JSON.stringify(item.policy,null,2)"></pre>
+                    </template>
+                  </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-2.5 flex items-center gap-2 flex-wrap border-t border-gray-200">
+                  <span class="text-xs text-gray-500 mr-1">Решение:</span>
+                  <button @click="item.resolution='skip'" :class="item.resolution==='skip'?'bg-gray-700 text-white':'bg-white border border-gray-300 hover:bg-gray-50'" class="px-3 py-1.5 text-xs rounded-lg">Пропустить</button>
+                  <button @click="item.resolution='replace'" :class="item.resolution==='replace'?'bg-blue-600 text-white':'bg-white border border-gray-300 hover:bg-gray-50'" class="px-3 py-1.5 text-xs rounded-lg">Заменить</button>
+                  <button @click="item.resolution='rename'" :class="item.resolution==='rename'?'bg-purple-600 text-white':'bg-white border border-gray-300 hover:bg-gray-50'" class="px-3 py-1.5 text-xs rounded-lg">Сохранить с новым именем</button>
+                  <template x-if="item.resolution==='rename'">
+                    <input x-model="item.newId" class="ml-1 flex-1 text-xs border border-purple-300 rounded-lg px-2.5 py-1.5 font-mono focus:outline-none focus:border-purple-400" :placeholder="item.policy.policy_id+'-copy'">
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+    </div>
+    <template x-if="importProgress">
+      <div class="px-5 py-2.5 border-t bg-gray-50">
+        <template x-if="importProgress.errors.length===0 && importProgress.done===importProgress.total">
+          <p class="text-sm text-green-700">✅ Импортировано: <strong x-text="importProgress.done"></strong> политик</p>
+        </template>
+        <template x-if="importProgress.errors.length>0">
+          <div class="text-sm text-red-600">
+            <p>⚠️ Завершено с ошибками:</p>
+            <template x-for="e in importProgress.errors"><p class="text-xs" x-text="e"></p></template>
+          </div>
+        </template>
+      </div>
+    </template>
+    <div class="px-5 py-3 border-t border-gray-100 flex justify-between items-center">
+      <span class="text-xs text-gray-400">
+        Будет добавлено: <strong x-text="importItems.filter(i=>i.resolution==='apply').length"></strong> ·
+        Заменено: <strong x-text="importItems.filter(i=>i.resolution==='replace').length"></strong> ·
+        Переименовано: <strong x-text="importItems.filter(i=>i.resolution==='rename').length"></strong>
+      </span>
+      <div class="flex gap-2">
+        <button @click="showImportModal=false" class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Отмена</button>
+        <button @click="applyImport()"
+          :disabled="importItems.filter(i=>i.existing&&!i.resolution).length>0"
+          class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50">
+          Применить
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== МОДАЛ ДОБАВЛЕНИЯ ПОЛЬЗОВАТЕЛЯ ===== -->
+<div x-show="showUserModal" x-cloak class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" @keydown.escape.window="showUserModal=false">
+  <div @click.outside="showUserModal=false" class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-gray-800" x-text="userForm._changeId?'Сменить пароль':'Новый пользователь'"></h3>
+      <button @click="showUserModal=false" class="text-gray-400 hover:text-gray-700 text-xl">✕</button>
+    </div>
+    <div class="space-y-3">
+      <template x-if="!userForm._changeId">
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Логин</label>
+          <input x-model="userForm.username" class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400" placeholder="username">
+        </div>
+      </template>
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Пароль</label>
+        <input x-model="userForm.password" type="password" class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400" placeholder="••••••••">
+      </div>
+      <template x-if="!userForm._changeId">
+        <div>
+          <label class="block text-xs font-medium text-gray-500 mb-1">Роль</label>
+          <select x-model="userForm.role" class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white">
+            <option value="admin">admin — полный доступ</option>
+            <option value="editor">editor — создание политик</option>
+            <option value="reviewer">reviewer — ревью политик</option>
+            <option value="viewer">viewer — только чтение</option>
+          </select>
+        </div>
+      </template>
+      <template x-if="userError">
+        <p class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2" x-text="userError"></p>
+      </template>
+    </div>
+    <div class="flex gap-2 mt-5">
+      <button @click="showUserModal=false" class="flex-1 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Отмена</button>
+      <button @click="saveUser()" class="flex-1 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Скрытый input для файла импорта -->
+<input type="file" id="import-file-input" accept=".json" class="hidden" @change="onImportFile($event)">
+
+<script>
+function app(){return{
+  currentUser:null,
+  loginForm:{username:'',password:'',error:''},
+  loginLoading:false,
+  demoUsers:[
+    {login:'admin',    pass:'Admin1234!',  role:'admin'},
+    {login:'editor',   pass:'Editor123!',  role:'editor'},
+    {login:'reviewer', pass:'Review123!',  role:'reviewer'},
+    {login:'viewer',   pass:'Viewer123!',  role:'viewer'},
+  ],
+
+  tabs:[],
+  modalTabs:[{id:'basic',label:'Основное'},{id:'selectors',label:'Селекторы'},{id:'steps',label:'Шаги'},{id:'conditions',label:'Условные шаги'}],
+  tab:'dashboard',
+  stats:{total:0,active:0,inactive:0,by_type:{}},
+  policies:[],filteredPolicies:[],filterType:'',filterEnabled:'all',
+  selectedPolicies:[],
+  showModal:false,modalMode:'create',
+  policyForm:null,
+  pendingPolicies:[],
+  users:[],
+  showUserModal:false,
+  userForm:{username:'',password:'',role:'viewer',_changeId:null},
+  userError:'',
+  testForm:{user_id:'user-123',resource_type:'',resource_name:'',resource_id:'',environment:'PROD',labels:'',roles:''},
+  testResult:null,testLoading:false,testError:'',
+  explainResult:null,explainError:'',
+  showImportModal:false,importItems:[],importFileName:'',importProgress:null,
+
+  async init(){
+    this.policyForm=this.defForm()
+    await this.checkAuth()
+    if(this.currentUser){
+      this.buildTabs()
+      await Promise.all([this.fetchStats(),this.fetchPolicies()])
+      if(this.canReview())this.fetchPending()
+      if(this.isAdmin())this.fetchUsers()
+    }
+  },
+
+  async checkAuth(){
+    try{const r=await fetch('/api/me');if(r.ok)this.currentUser=await r.json();else this.currentUser=null}catch{this.currentUser=null}
+  },
+
+  buildTabs(){
+    this.tabs=[
+      {id:'dashboard',label:'Dashboard'},
+      {id:'policies', label:'Политики'},
+      {id:'tester',   label:'Тестер'},
+    ]
+    if(this.canReview())this.tabs.push({id:'review',label:'Ревью',badge:this.pendingPolicies.length||null})
+    if(this.isAdmin())this.tabs.push({id:'users',label:'Пользователи'})
+  },
+
+  updateReviewBadge(){
+    const t=this.tabs.find(t=>t.id==='review')
+    if(t)t.badge=this.pendingPolicies.length||null
+  },
+
+  isAdmin(){return this.currentUser?.role==='admin'},
+  canReview(){return['admin','reviewer'].includes(this.currentUser?.role)},
+  canEdit(){return this.currentUser?.role!=='viewer'},
+
+  async doLogin(){
+    this.loginLoading=true;this.loginForm.error=''
+    try{
+      const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:this.loginForm.username,password:this.loginForm.password})})
+      const d=await r.json()
+      if(!r.ok){this.loginForm.error=d.error||'Ошибка входа';return}
+      this.currentUser=d;this.loginForm={username:'',password:'',error:''}
+      this.buildTabs()
+      await Promise.all([this.fetchStats(),this.fetchPolicies()])
+      if(this.canReview())await this.fetchPending()
+      if(this.isAdmin())await this.fetchUsers()
+    }finally{this.loginLoading=false}
+  },
+
+  async doLogout(){
+    await fetch('/auth/logout',{method:'POST'})
+    this.currentUser=null;this.policies=[];this.filteredPolicies=[]
+    this.stats={total:0,active:0,inactive:0,by_type:{}};this.pendingPolicies=[];this.users=[];this.tabs=[]
+  },
+
+  async fetchStats(){try{const r=await fetch('/api/stats');if(r.ok)this.stats=await r.json()}catch{}},
+  async fetchPolicies(){try{const r=await fetch('/api/policies');if(r.ok){this.policies=(await r.json())||[];this.applyFilter()}}catch{}},
+  async fetchPending(){try{const r=await fetch('/api/pending');if(r.ok){this.pendingPolicies=(await r.json())||[];this.updateReviewBadge()}}catch{}},
+  async fetchUsers(){try{const r=await fetch('/api/users');if(r.ok)this.users=(await r.json())||[]}catch{}},
+
+  applyFilter(){
+    this.filteredPolicies=this.policies.filter(p=>{
+      if(this.filterType&&p.type!==this.filterType)return false
+      if(this.filterEnabled==='active'&&!p.enabled)return false
+      if(this.filterEnabled==='inactive'&&p.enabled)return false
+      return true
+    })
+  },
+
+  typeBadge(t){return{baseline:'bg-blue-50 text-blue-700',augment:'bg-green-50 text-green-700',override:'bg-orange-50 text-orange-700',restrict:'bg-red-50 text-red-700'}[t]||'bg-gray-100 text-gray-600'},
+  roleBadge(r){return{admin:'bg-rose-100 text-rose-700',editor:'bg-blue-100 text-blue-700',reviewer:'bg-purple-100 text-purple-700',viewer:'bg-gray-100 text-gray-600'}[r]||'bg-gray-100 text-gray-600'},
+
+  // ── Ревью ──
+  async doApprove(id){
+    const r=await fetch(`/api/pending/${id}/approve`,{method:'POST'})
+    if(!r.ok){alert('Ошибка одобрения');return}
+    await Promise.all([this.fetchPending(),this.fetchStats(),this.fetchPolicies()])
+  },
+  async doReject(id,comment){
+    const r=await fetch(`/api/pending/${id}/reject`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comment})})
+    if(!r.ok){alert('Ошибка отклонения');return}
+    await this.fetchPending()
+  },
+
+  // ── Пользователи ──
+  openChangePassword(u){this.userForm={username:u.username,password:'',role:u.role,_changeId:u.id};this.userError='';this.showUserModal=true},
+  async deleteUser(u){
+    if(!confirm(`Удалить пользователя "${u.username}"?`))return
+    const r=await fetch(`/api/users/${u.id}`,{method:'DELETE'})
+    if(!r.ok){const e=await r.json().catch(()=>({}));alert(e.error||'Ошибка');return}
+    await this.fetchUsers()
+  },
+  async saveUser(){
+    this.userError=''
+    if(this.userForm._changeId){
+      if(!this.userForm.password){this.userError='Введите пароль';return}
+      const r=await fetch(`/api/users/${this.userForm._changeId}/password`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:this.userForm.password})})
+      if(!r.ok){const e=await r.json().catch(()=>({}));this.userError=e.error||'Ошибка';return}
+    }else{
+      if(!this.userForm.username||!this.userForm.password){this.userError='Заполните все поля';return}
+      const r=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:this.userForm.username,password:this.userForm.password,role:this.userForm.role})})
+      if(!r.ok){const e=await r.json().catch(()=>({}));this.userError=e.error||'Ошибка';return}
+    }
+    this.showUserModal=false;await this.fetchUsers()
+  },
+
+  // ── Форма политики ──
+  defForm(){return{policy_id:'',type:'baseline',priority:100,enabled:true,modalTab:'basic',sel_resource_type:'*',sel_resource_name:'',sel_resource_id:'',sel_environment:'*',sel_labels:[],_new_label:'',sel_roles:[],_new_role:'',sel_department:'',sel_groups:[],_new_group:'',steps:[],cond_steps:[]}},
+
+  openCreate(){this.modalMode='create';this.policyForm=this.defForm();this.tab='policies';this.showModal=true},
+  openEdit(p){this.modalMode='edit';this.policyForm=this.p2form(p);this.showModal=true},
+
+  addTag(arr,tmp){const v=this.policyForm[tmp].trim();if(v&&!this.policyForm[arr].includes(v)){this.policyForm[arr].push(v);this.policyForm[tmp]=''}},
+  toggleDynApprover(step,role){const i=step.dynamic_approvers.indexOf(role);if(i>=0)step.dynamic_approvers.splice(i,1);else step.dynamic_approvers.push(role)},
+
+  prevModalTab(){const t=['basic','selectors','steps','conditions'];const i=t.indexOf(this.policyForm.modalTab);if(i>0)this.policyForm.modalTab=t[i-1]},
+  nextModalTab(){const t=['basic','selectors','steps','conditions'];const i=t.indexOf(this.policyForm.modalTab);if(i<t.length-1)this.policyForm.modalTab=t[i+1]},
+
+  isListField(f){return['hr.groups','resource.labels','subject.roles'].includes(f)},
+
+  onFieldChange(ci,condi){
+    const c=this.policyForm.cond_steps[ci].conditions[condi]
+    if(this.isListField(c.field)){if(c.op!=='IN'&&c.op!=='NOT IN')c.op='IN'}
+    else{if(c.op==='IN'||c.op==='NOT IN')c.op='=='}
+  },
+
+  buildDSL(conds){
+    const fmt=c=>c.op==='IN'?`"${c.value}" IN ${c.field}`:c.op==='NOT IN'?`"${c.value}" NOT IN ${c.field}`:`${c.field} ${c.op} "${c.value}"`
+    const parts=conds.filter(c=>c.value!=='')
+    if(!parts.length)return''
+    let r=fmt(parts[0])
+    for(let i=1;i<parts.length;i++)r+=' '+(parts[i].connector||'AND')+' '+fmt(parts[i])
+    return r
+  },
+
+  updateDSL(ci){
+    const cs=this.policyForm.cond_steps[ci]
+    if(cs._raw_dsl!==null)return
+    cs._dsl_preview=this.buildDSL(cs.conditions)
+  },
+
+  parseDSL(dsl){
+    if(!dsl||!dsl.trim())return{conditions:[]}
+    dsl=dsl.trim()
+    const tokens=dsl.split(/(\s+(?:AND|OR)\s+)/i)
+    const conditions=[]
+    for(let i=0;i<tokens.length;i+=2){
+      const part=tokens[i].trim()
+      const connector=i>0?(/OR/i.test(tokens[i-1])?'OR':'AND'):'AND'
+      const m1=part.match(/^"([^"]*)"(\s+NOT)?\s+IN\s+(\S+)$/)
+      if(m1){conditions.push({field:m1[3],op:m1[2]?'NOT IN':'IN',value:m1[1],connector});continue}
+      const m2=part.match(/^(\S+)\s+(==|!=)\s+"([^"]*)"$/)
+      if(m2){conditions.push({field:m2[1],op:m2[2],value:m2[3],connector});continue}
+      return null
+    }
+    return{conditions}
+  },
+
+  mapStep(s){return{name:s.name||'',mode:s.mode||'ANY',order:s.order||1,static_approvers:(s.approvers?.static)||[],dynamic_approvers:(s.approvers?.dynamic||[]).map(d=>typeof d==='string'?d:d.role),_new_approver:''}},
+
+  p2form(p){
+    const sel=p.selectors||{}
+    const sv=v=>typeof v==='string'?v:Array.isArray(v)?(v[0]||'*'):'*'
+    const envVal=sv(sel.environment)||'*'
+    const condSteps=(p.conditional_steps||[]).map(cs=>{
+      const parsed=this.parseDSL(cs.if||'')
+      return parsed
+        ?{conditions:parsed.conditions,steps:(cs.steps||[]).map(s=>this.mapStep(s)),_dsl_preview:cs.if||'',_raw_dsl:null}
+        :{conditions:[],steps:(cs.steps||[]).map(s=>this.mapStep(s)),_dsl_preview:cs.if||'',_raw_dsl:cs.if||''}
+    })
+    return{...this.defForm(),policy_id:p.policy_id,type:p.type||'baseline',priority:p.priority||100,enabled:p.enabled!==false,
+      sel_resource_type:sv(sel.resource_type)||'*',sel_resource_name:typeof sel.resource_name==='string'?sel.resource_name:'',sel_resource_id:typeof sel.resource_id==='string'?sel.resource_id:'',
+      sel_environment:envVal,sel_labels:sel.labels||[],sel_roles:sel.roles||[],sel_department:sel.department||'',sel_groups:Array.isArray(sel.groups)?sel.groups:[],
+      steps:(p.steps||[]).map(s=>this.mapStep(s)),cond_steps:condSteps}
+  },
+
+  form2policy(){
+    const f=this.policyForm
+    const sel={}
+    if(f.sel_resource_type)sel.resource_type=f.sel_resource_type
+    if(f.sel_resource_name)sel.resource_name=f.sel_resource_name
+    if(f.sel_resource_id)sel.resource_id=f.sel_resource_id
+    if(f.sel_environment&&f.sel_environment!=='*')sel.environment=f.sel_environment
+    else if(f.sel_environment==='*')sel.environment='*'
+    if(f.sel_labels?.length)sel.labels=f.sel_labels
+    if(f.sel_roles?.length)sel.roles=f.sel_roles
+    if(f.sel_department)sel.department=f.sel_department
+    if(f.sel_groups?.length)sel.groups=f.sel_groups
+    const ms=s=>({name:s.name,mode:s.mode,order:parseInt(s.order)||1,approvers:{static:s.static_approvers||[],dynamic:(s.dynamic_approvers||[]).map(r=>({role:r}))}})
+    const steps=f.steps.map(ms)
+    const conditional_steps=f.cond_steps.map(cs=>{
+      const dslStr=cs._raw_dsl!==null?cs._raw_dsl:this.buildDSL(cs.conditions)
+      return{if:dslStr,steps:cs.steps.map(ms)}
+    }).filter(cs=>cs.if)
+    return{policy_id:f.policy_id,type:f.type,priority:f.priority,enabled:f.enabled,selectors:sel,steps,conditional_steps}
+  },
+
+  async savePolicy(){
+    if(!this.policyForm.policy_id.trim()){alert('Укажите Policy ID');this.policyForm.modalTab='basic';return}
+    const body=this.form2policy()
+    const url=this.modalMode==='edit'?`/api/policies/${body.policy_id}`:'/api/policies'
+    const method=this.modalMode==='edit'?'PUT':'POST'
+    const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    if(!r.ok){const e=await r.json().catch(()=>({}));alert('Ошибка: '+(e.error||r.statusText));return}
+    this.showModal=false
+    if(r.status===202){alert('Политика отправлена на ревью администратору')}
+    await Promise.all([this.fetchPolicies(),this.fetchStats()])
+  },
+
+  async togglePolicy(p){await fetch(`/api/policies/${p.policy_id}/toggle`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!p.enabled})});await Promise.all([this.fetchPolicies(),this.fetchStats()])},
+  async deletePolicy(id){if(!confirm(`Удалить политику "${id}"?`))return;const r=await fetch(`/api/policies/${id}`,{method:'DELETE'});if(!r.ok){alert('Не удалось удалить');return}this.selectedPolicies=this.selectedPolicies.filter(s=>s!==id);await Promise.all([this.fetchPolicies(),this.fetchStats()])},
+
+  toggleSelect(id){if(this.selectedPolicies.includes(id))this.selectedPolicies=this.selectedPolicies.filter(s=>s!==id);else this.selectedPolicies=[...this.selectedPolicies,id]},
+  toggleSelectAll(){if(this.filteredPolicies.every(p=>this.selectedPolicies.includes(p.policy_id)))this.selectedPolicies=this.selectedPolicies.filter(id=>!this.filteredPolicies.find(p=>p.policy_id===id));else this.selectedPolicies=[...new Set([...this.selectedPolicies,...this.filteredPolicies.map(p=>p.policy_id)])]},
+
+  exportPolicies(all){
+    const data=all?this.policies:this.policies.filter(p=>this.selectedPolicies.includes(p.policy_id))
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'})
+    const url=URL.createObjectURL(blob),a=document.createElement('a')
+    a.href=url;a.download='policies.json';a.click();URL.revokeObjectURL(url)
+  },
+
+  triggerImport(){document.getElementById('import-file-input').click()},
+  async onImportFile(ev){
+    const file=ev.target.files[0];if(!file)return
+    this.importFileName=file.name
+    let parsed;try{parsed=JSON.parse(await file.text())}catch(e){alert('Ошибка чтения JSON: '+e.message);return}
+    if(!Array.isArray(parsed)){alert('Файл должен содержать массив политик');return}
+    await this.fetchPolicies()
+    this.importItems=parsed.map(p=>({policy:p,existing:this.policies.find(x=>x.policy_id===p.policy_id)||null,resolution:this.policies.find(x=>x.policy_id===p.policy_id)?null:'apply',newId:(p.policy_id||'')+'-copy',_view:'card',_expanded:false}))
+    this.importProgress=null;this.showImportModal=true;ev.target.value=''
+  },
+
+  async applyImport(){
+    const items=this.importItems.filter(i=>i.resolution&&i.resolution!=='skip')
+    this.importProgress={done:0,total:items.length,errors:[]}
+    for(const item of items){
+      try{
+        if(item.resolution==='apply'){await fetch('/api/policies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item.policy)})}
+        else if(item.resolution==='replace'){await fetch(`/api/policies/${item.policy.policy_id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(item.policy)})}
+        else if(item.resolution==='rename'){const np={...item.policy,policy_id:item.newId||item.policy.policy_id+'-copy'};await fetch('/api/policies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(np)})}
+        this.importProgress.done++
+      }catch(e){this.importProgress.errors.push(`${item.policy.policy_id}: ${e.message}`)}
+    }
+    await Promise.all([this.fetchPolicies(),this.fetchStats()])
+    if(this.importProgress.errors.length===0)setTimeout(()=>{this.showImportModal=false;this.importProgress=null},1200)
+  },
+
+  buildRequest(f){return{user_id:f.user_id,resource_type:f.resource_type,resource_name:f.resource_name,resource_id:f.resource_id||'',environment:f.environment,labels:f.labels?f.labels.split(',').map(s=>s.trim()).filter(Boolean):[],roles:f.roles?f.roles.split(',').map(s=>s.trim()).filter(Boolean):[]}},
+
+  async runTest(){
+    this.testLoading=true;this.testError='';this.explainError='';this.testResult=null;this.explainResult=null
+    try{
+      const req=this.buildRequest(this.testForm)
+      const opts={method:'POST',headers:{'Content-Type':'application/json'}}
+      const [r1,r2]=await Promise.all([
+        fetch('/api/test',   {...opts,body:JSON.stringify(req)}),
+        fetch('/api/explain',{...opts,body:JSON.stringify(req)}),
+      ])
+      const [d1,d2]=await Promise.all([r1.json(),r2.json()])
+      if(!r1.ok){this.testError=d1.error||r1.statusText}else{this.testResult=d1}
+      if(!r2.ok){this.explainError=d2.error||r2.statusText}else{this.explainResult=d2}
+    }catch(e){this.testError=e.message}finally{this.testLoading=false}
+  },
+}}
+</script>
+</body>
+</html>

@@ -6,18 +6,17 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"nir/pkg/dsl"
 	pb "nir/proto/iam/v1"
 )
 
-// ==========================
 // MODELS
-// ==========================
 
 type Policy struct {
 	ID               string            `json:"policy_id"`
-	Type             string            `json:"type"`                        // baseline | augment | override | restrict
+	Type             string            `json:"type"` // baseline | augment | override | restrict
 	Priority         int               `json:"priority"`
 	Selectors        Selectors         `json:"selectors"`
 	Steps            []Step            `json:"steps"`                       // безусловные шаги
@@ -57,9 +56,7 @@ type ConditionalStep struct {
 	Steps []Step `json:"steps"` // шаги, добавляемые при if == true
 }
 
-// ==========================
 // ENGINE
-// ==========================
 
 type Engine struct {
 	policies []Policy
@@ -101,13 +98,12 @@ func (e *Engine) Policies() []Policy {
 	return result
 }
 
-// ==========================
 // ENGINE HOLDER
-// ==========================
 
 type EngineHolder struct {
-	mu     sync.RWMutex
-	engine *Engine
+	mu         sync.RWMutex
+	engine     *Engine
+	generation atomic.Int64
 }
 
 func NewEngineHolder(e *Engine) *EngineHolder {
@@ -124,11 +120,17 @@ func (h *EngineHolder) Set(e *Engine) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.engine = e
+	h.generation.Add(1)
 }
 
-// ==========================
+// Generation returns a monotonically increasing counter that increments
+// each time policies are replaced. Cache keys should embed this value so
+// that stale entries are naturally evicted without an explicit flush.
+func (h *EngineHolder) Generation() int64 {
+	return h.generation.Load()
+}
+
 // PIPELINE
-// ==========================
 
 type PipelineTrace struct {
 	TotalPolicies    int
@@ -161,7 +163,7 @@ func diff(before, after []string) []string {
 	return rejected
 }
 
-// EvaluatePipeline выполняет фильтрацию политик (selectors → HR).
+// EvaluatePipeline выполняет фильтрацию политик.
 func (e *Engine) EvaluatePipeline(req *pb.AccessRequest, hr *pb.HRResponse) ([]Policy, PipelineTrace) {
 	trace := PipelineTrace{TotalPolicies: len(e.policies)}
 
@@ -216,7 +218,7 @@ func CollectConditionalSteps(p Policy, req *pb.AccessRequest, hr *pb.HRResponse)
 	for _, cs := range p.ConditionalSteps {
 		ok, err := dsl.Evaluate(cs.If, ctx)
 		if err != nil {
-			log.Printf("  ⚠️  condition error [%s]: %v", p.ID, err)
+			log.Printf("condition error [%s]: %v", p.ID, err)
 			continue
 		}
 		if ok {
@@ -228,7 +230,7 @@ func CollectConditionalSteps(p Policy, req *pb.AccessRequest, hr *pb.HRResponse)
 	return steps, triggered
 }
 
-// --- internal ---
+//internal
 
 func (e *Engine) selectPoliciesPreHR(req *pb.AccessRequest, labels []string) []Policy {
 	var selected []Policy
@@ -254,9 +256,7 @@ func (e *Engine) filterPoliciesWithHR(policies []Policy, hr *pb.HRResponse) []Po
 	return result
 }
 
-// ==========================
 // EXPLAIN
-// ==========================
 
 type PolicyExplainResult struct {
 	PolicyID         string
@@ -301,6 +301,20 @@ func (e *Engine) Explain(req *pb.AccessRequest, hr *pb.HRResponse) []PolicyExpla
 
 		check("environment", matchInterface(p.Selectors.Environment, req.Resource.Environment.String()))
 
+		if len(p.Selectors.Labels) > 0 {
+			labels := []string{}
+			if req.Resource != nil {
+				labels = req.Resource.Labels
+			}
+			allLabelsMatch := true
+			for _, required := range p.Selectors.Labels {
+				if !contains(labels, required) {
+					allLabelsMatch = false
+					break
+				}
+			}
+			check("labels", allLabelsMatch)
+		}
 		if len(p.Selectors.Roles) > 0 {
 			check("roles", matchRoles(p.Selectors.Roles, req.Roles))
 		}
@@ -347,9 +361,7 @@ func (e *Engine) Explain(req *pb.AccessRequest, hr *pb.HRResponse) []PolicyExpla
 	return results
 }
 
-// ==========================
 // MATCHING HELPERS
-// ==========================
 
 func matchesSelectorsPreHR(p Policy, req *pb.AccessRequest, labels []string) bool {
 	if req == nil || req.Resource == nil {

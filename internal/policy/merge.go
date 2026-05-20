@@ -106,10 +106,13 @@ func MergeSteps(policies []Policy) []Step {
 	}
 
 	sort.SliceStable(merged, func(i, j int) bool {
-		if merged[i].Order == merged[j].Order {
-			return merged[i].Mode == "ALL" && merged[j].Mode != "ALL"
+		if merged[i].Order != merged[j].Order {
+			return merged[i].Order < merged[j].Order
 		}
-		return merged[i].Order < merged[j].Order
+		if (merged[i].Mode == "ALL") != (merged[j].Mode == "ALL") {
+			return merged[i].Mode == "ALL"
+		}
+		return merged[i].Name < merged[j].Name // детерминированный тайбрекер
 	})
 
 	return merged

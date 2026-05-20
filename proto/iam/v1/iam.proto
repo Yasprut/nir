@@ -85,12 +85,19 @@ message IsApproverResponse {
   bool is_approver = 1;
 }
 
+message ConditionalStepExplain {
+  string if_expr = 1;
+  bool triggered = 2;
+  repeated string step_names = 3;
+}
+
 message PolicyExplain {
   string policy_id = 1;
   string type = 2; // baseline | augment | override | restrict
   int32 priority = 3;
   bool matched = 4;
   repeated string reasons = 5;
+  repeated ConditionalStepExplain conditional_steps = 6;
 }
 
 message ExplainResponse {

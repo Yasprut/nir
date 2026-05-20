@@ -1,0 +1,20 @@
+# Environment
+.env
+
+# Go binaries
+/bin/
+*.exe
+*.test
+
+# Build artifacts
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

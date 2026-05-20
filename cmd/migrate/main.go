@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
@@ -101,7 +102,50 @@ func main() {
 		log.Printf("✅ %s: %s", direction, filepath.Base(file))
 	}
 
+	if direction == "up" {
+		if err := seedDefaultUsers(ctx, pool); err != nil {
+			log.Printf("⚠️  Seed users: %v", err)
+		}
+	}
+
 	fmt.Println("Done.")
+}
+
+func seedDefaultUsers(ctx context.Context, pool *pgxpool.Pool) error {
+	var count int
+	if err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM users").Scan(&count); err != nil {
+		return fmt.Errorf("check users table: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+
+	defaults := []struct {
+		username string
+		password string
+		role     string
+	}{
+		{"admin",    "Admin1234!",  "admin"},
+		{"editor",   "Editor123!",  "editor"},
+		{"reviewer", "Review123!",  "reviewer"},
+		{"viewer",   "Viewer123!",  "viewer"},
+	}
+
+	for _, u := range defaults {
+		hash, err := bcrypt.GenerateFromPassword([]byte(u.password), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("hash password for %s: %w", u.username, err)
+		}
+		_, err = pool.Exec(ctx,
+			`INSERT INTO users (username, password_hash, role) VALUES ($1,$2,$3)`,
+			u.username, string(hash), u.role,
+		)
+		if err != nil {
+			return fmt.Errorf("insert user %s: %w", u.username, err)
+		}
+		log.Printf("👤 Seeded user: %s (role: %s)", u.username, u.role)
+	}
+	return nil
 }
 
 func extractVersion(filename string) string {

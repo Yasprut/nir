@@ -5,7 +5,7 @@ INSERT INTO policies (policy_id, type, priority, selectors, steps, conditional_s
 
 ('base-app-prod', 'baseline', 100,
  '{"resource_type":"app","environment":"PROD"}',
- '[{"name":"Manager Approval","approvers":{"dynamic":[{"role":"manager"}],"static":["team-lead-pool"],"dynamic":[{"role":"manager"}]},"mode":"ANY","order":1}]',
+ '[{"name":"Manager Approval","approvers":{"dynamic":[{"role":"manager"}],"static":["team-lead-pool"]},"mode":"ANY","order":1}]',
  '[
     {"if":"\"pci\" IN resource.labels","steps":[{"name":"PCI Compliance","approvers":{"static":["compliance-officer","pci-auditor"],"dynamic":[]},"mode":"ALL","order":4}]},
     {"if":"\"critical\" IN resource.labels","steps":[{"name":"VP Approval","approvers":{"static":["vp-engineering","vp-security"],"dynamic":[]},"mode":"ALL","order":5}]},
